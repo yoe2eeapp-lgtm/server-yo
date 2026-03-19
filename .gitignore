@@ -1,0 +1,7 @@
+node_modules/
+yo.db
+yo.db-shm
+yo.db-wal
+.jwt_secret
+*.log
+.env
