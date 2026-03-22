@@ -76,7 +76,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
       sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
-      encrypted_key TEXT NOT NULL, iv TEXT NOT NULL, ciphertext TEXT NOT NULL,
+      sender_public_key TEXT NOT NULL, iv TEXT NOT NULL, ciphertext TEXT NOT NULL,
       sent_at INTEGER NOT NULL, delivered INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_msg_conv  ON messages(conversation_id, sent_at);
@@ -329,7 +329,7 @@ app.get('/messages/:contactId', auth, (req, res) => {
     [cid, req.userId]);
   res.json(rows.reverse().map(m => ({
     id: m.id, senderId: m.sender_id, recipientId: m.recipient_id,
-    encryptedPayload: { encryptedKey: m.encrypted_key, iv: m.iv, ciphertext: m.ciphertext },
+    encryptedPayload: { senderPublicKey: m.sender_public_key, iv: m.iv, ciphertext: m.ciphertext },
     timestamp: m.sent_at, delivered: !!m.delivered,
   })));
 });
@@ -344,7 +344,7 @@ app.get('/conversations', auth, (req, res) => {
       contact,
       lastMessage: last ? {
         id: last.id, senderId: last.sender_id, recipientId: last.recipient_id,
-        encryptedPayload: { encryptedKey: last.encrypted_key, iv: last.iv, ciphertext: last.ciphertext },
+        encryptedPayload: { senderPublicKey: last.sender_public_key, iv: last.iv, ciphertext: last.ciphertext },
         timestamp: last.sent_at, isMine: last.sender_id === req.userId,
       } : null,
     };
@@ -368,14 +368,14 @@ io.on('connection', socket => {
   socket.on('send_message', (data, ack) => {
     try {
       const { recipientId, encryptedPayload: ep } = data;
-      if (!recipientId || !ep?.encryptedKey)
+      if (!recipientId || !ep?.senderPublicKey)
         return ack?.({ error: 'Invalid data' });
       if (!one('SELECT 1 FROM connections WHERE user_a=? AND user_b=?', [uid, recipientId]))
         return ack?.({ error: 'Not connected' });
 
       const id = uuidv4(), now = Date.now(), cid = convId(uid, recipientId);
-      run('INSERT INTO messages (id,conversation_id,sender_id,recipient_id,encrypted_key,iv,ciphertext,sent_at) VALUES (?,?,?,?,?,?,?,?)',
-        [id, cid, uid, recipientId, ep.encryptedKey, ep.iv, ep.ciphertext, now]);
+      run('INSERT INTO messages (id,conversation_id,sender_id,recipient_id,sender_public_key,iv,ciphertext,sent_at) VALUES (?,?,?,?,?,?,?,?)',
+        [id, cid, uid, recipientId, ep.senderPublicKey, ep.iv, ep.ciphertext, now]);
 
       io.to(`user:${recipientId}`).emit('message', { id, senderId: uid, recipientId, encryptedPayload: ep, timestamp: now });
       ack?.({ ok: true, id, timestamp: now });
